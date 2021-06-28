@@ -1,5 +1,5 @@
 const path = require("path");
-const jestDiff = require("jest-diff").default;
+const jestDiff = require("jest-diff").diff;
 const stripAnsi = require("strip-ansi");
 const { applyWebpackOptionsDefaults, getNormalizedWebpackOptions } =
 	require("..").config;
@@ -860,6 +860,15 @@ describe("Defaults", () => {
 		@@ ... @@
 		-   "externalsType": "var",
 		+   "externalsType": "module",
+		@@ ... @@
+		-     "chunkFilename": "[name].js",
+		+     "chunkFilename": "[name].mjs",
+		@@ ... @@
+		-     "filename": "[name].js",
+		+     "filename": "[name].mjs",
+		@@ ... @@
+		-     "hotUpdateChunkFilename": "[id].[fullhash].hot-update.js",
+		+     "hotUpdateChunkFilename": "[id].[fullhash].hot-update.mjs",
 		@@ ... @@
 		-     "iife": true,
 		+     "iife": false,

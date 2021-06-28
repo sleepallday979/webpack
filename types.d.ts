@@ -52,15 +52,16 @@ import {
 	NewExpression,
 	ObjectExpression,
 	ObjectPattern,
+	PrivateIdentifier,
 	Program,
 	Property,
+	PropertyDefinition,
 	RegExpLiteral,
 	RestElement,
 	ReturnStatement,
 	SequenceExpression,
 	SimpleCallExpression,
 	SimpleLiteral,
-	SourceLocation,
 	SpreadElement,
 	Super,
 	SwitchCase,
@@ -118,11 +119,11 @@ declare class AbstractLibraryPlugin<T> {
 	): void;
 	embedInRuntimeBailout(
 		module: Module,
-		renderContext: RenderContextObject,
+		renderContext: RenderContext,
 		libraryContext: LibraryContext<T>
 	): undefined | string;
 	strictRuntimeBailout(
-		renderContext: RenderContextObject,
+		renderContext: RenderContext,
 		libraryContext: LibraryContext<T>
 	): undefined | string;
 	runtimeRequirements(
@@ -132,7 +133,7 @@ declare class AbstractLibraryPlugin<T> {
 	): void;
 	render(
 		source: Source,
-		renderContext: RenderContextObject,
+		renderContext: RenderContext,
 		libraryContext: LibraryContext<T>
 	): Source;
 	renderStartup(
@@ -358,6 +359,7 @@ declare abstract class AsyncQueue<T, K, R> {
 	isProcessing(item: T): boolean;
 	isQueued(item: T): boolean;
 	isDone(item: T): boolean;
+	clear(): void;
 }
 declare class AsyncWebAssemblyModulesPlugin {
 	constructor(options?: any);
@@ -1061,6 +1063,42 @@ declare class ChunkPrefetchPreloadPlugin {
 	constructor();
 	apply(compiler: Compiler): void;
 }
+declare interface ChunkRenderContext {
+	/**
+	 * the chunk
+	 */
+	chunk: Chunk;
+
+	/**
+	 * the dependency templates
+	 */
+	dependencyTemplates: DependencyTemplates;
+
+	/**
+	 * the runtime template
+	 */
+	runtimeTemplate: RuntimeTemplate;
+
+	/**
+	 * the module graph
+	 */
+	moduleGraph: ModuleGraph;
+
+	/**
+	 * the chunk graph
+	 */
+	chunkGraph: ChunkGraph;
+
+	/**
+	 * results of code generation
+	 */
+	codeGenerationResults: CodeGenerationResults;
+
+	/**
+	 * init fragments for the chunk
+	 */
+	chunkInitFragments: InitFragment<ChunkRenderContext>[];
+}
 declare interface ChunkSizeOptions {
 	/**
 	 * constant overhead for a chunk
@@ -1748,27 +1786,28 @@ declare interface CompilationAssets {
 	[index: string]: Source;
 }
 declare interface CompilationHooksAsyncWebAssemblyModulesPlugin {
-	renderModuleContent: SyncWaterfallHook<[Source, Module, RenderContextObject]>;
+	renderModuleContent: SyncWaterfallHook<[Source, Module, RenderContext]>;
 }
 declare interface CompilationHooksJavascriptModulesPlugin {
-	renderModuleContent: SyncWaterfallHook<[Source, Module, RenderContextObject]>;
+	renderModuleContent: SyncWaterfallHook<[Source, Module, ChunkRenderContext]>;
 	renderModuleContainer: SyncWaterfallHook<
-		[Source, Module, RenderContextObject]
+		[Source, Module, ChunkRenderContext]
 	>;
-	renderModulePackage: SyncWaterfallHook<[Source, Module, RenderContextObject]>;
-	renderChunk: SyncWaterfallHook<[Source, RenderContextObject]>;
-	renderMain: SyncWaterfallHook<[Source, RenderContextObject]>;
-	render: SyncWaterfallHook<[Source, RenderContextObject]>;
+	renderModulePackage: SyncWaterfallHook<[Source, Module, ChunkRenderContext]>;
+	renderChunk: SyncWaterfallHook<[Source, RenderContext]>;
+	renderMain: SyncWaterfallHook<[Source, RenderContext]>;
+	renderContent: SyncWaterfallHook<[Source, RenderContext]>;
+	render: SyncWaterfallHook<[Source, RenderContext]>;
 	renderStartup: SyncWaterfallHook<[Source, Module, StartupRenderContext]>;
 	renderRequire: SyncWaterfallHook<[string, RenderBootstrapContext]>;
 	inlineInRuntimeBailout: SyncBailHook<
 		[Module, RenderBootstrapContext],
 		string
 	>;
-	embedInRuntimeBailout: SyncBailHook<[Module, RenderContextObject], string>;
-	strictRuntimeBailout: SyncBailHook<[RenderContextObject], string>;
+	embedInRuntimeBailout: SyncBailHook<[Module, RenderContext], string>;
+	strictRuntimeBailout: SyncBailHook<[RenderContext], string>;
 	chunkHash: SyncHook<[Chunk, Hash, ChunkHashContext]>;
-	useSourceMap: SyncBailHook<[Chunk, RenderContextObject], boolean>;
+	useSourceMap: SyncBailHook<[Chunk, RenderContext], boolean>;
 }
 declare interface CompilationHooksRealContentHashPlugin {
 	updateHash: SyncBailHook<[Buffer[], string], string>;
@@ -2375,6 +2414,7 @@ declare interface ContextModuleOptions {
 	include?: RegExp;
 	exclude?: RegExp;
 	groupOptions?: RawChunkGroupOptions;
+	typePrefix?: string;
 	category?: string;
 
 	/**
@@ -2574,7 +2614,7 @@ declare interface DependencyTemplateContext {
 	/**
 	 * mutable array of init fragments for the current module
 	 */
-	initFragments: InitFragment[];
+	initFragments: InitFragment<GenerateContext>[];
 
 	/**
 	 * when in a concatenated module, information about other concatenated modules
@@ -3578,6 +3618,11 @@ declare interface ExternalItemFunctionData {
 	contextInfo?: ModuleFactoryCreateDataContextInfo;
 
 	/**
+	 * The category of the referencing dependencies.
+	 */
+	dependencyType?: string;
+
+	/**
 	 * Get a resolve function with the current resolver options.
 	 */
 	getResolve?: (
@@ -3620,11 +3665,6 @@ declare class ExternalModule extends Module {
 	request: string | string[] | Record<string, string | string[]>;
 	externalType: string;
 	userRequest: string;
-	getSourceData(
-		runtimeTemplate?: any,
-		moduleGraph?: any,
-		chunkGraph?: any
-	): SourceData;
 }
 declare interface ExternalModuleInfo {
 	index: number;
@@ -4361,14 +4401,14 @@ declare interface InfrastructureLogging {
 	 */
 	stream?: NodeJS.WritableStream;
 }
-declare abstract class InitFragment {
+declare abstract class InitFragment<Context> {
 	content: string | Source;
 	stage: number;
 	position: number;
 	key?: string;
 	endContent?: string | Source;
-	getContent(generateContext: GenerateContext): string | Source;
-	getEndContent(generateContext: GenerateContext): undefined | string | Source;
+	getContent(context: Context): string | Source;
+	getEndContent(context: Context): undefined | string | Source;
 	merge: any;
 }
 declare interface InputFileSystem {
@@ -4455,12 +4495,12 @@ declare class JavascriptModulesPlugin {
 	apply(compiler: Compiler): void;
 	renderModule(
 		module: Module,
-		renderContext: RenderContextObject,
+		renderContext: ChunkRenderContext,
 		hooks: CompilationHooksJavascriptModulesPlugin,
 		factory: boolean | "strict"
 	): Source;
 	renderChunk(
-		renderContext: RenderContextObject,
+		renderContext: RenderContext,
 		hooks: CompilationHooksJavascriptModulesPlugin
 	): Source;
 	renderMain(
@@ -4557,7 +4597,7 @@ declare class JavascriptParser extends Parser {
 						| FunctionDeclaration
 						| VariableDeclaration
 						| ClassDeclaration
-						| PrivateIdentifierNode
+						| PrivateIdentifier
 					),
 					number
 				],
@@ -4661,7 +4701,7 @@ declare class JavascriptParser extends Parser {
 		>;
 		classBodyElement: SyncBailHook<
 			[
-				MethodDefinition | PropertyDefinitionNode,
+				MethodDefinition | PropertyDefinition,
 				ClassExpression | ClassDeclaration
 			],
 			boolean | void
@@ -4669,7 +4709,7 @@ declare class JavascriptParser extends Parser {
 		classBodyValue: SyncBailHook<
 			[
 				Expression,
-				MethodDefinition | PropertyDefinitionNode,
+				MethodDefinition | PropertyDefinition,
 				ClassExpression | ClassDeclaration
 			],
 			boolean | void
@@ -4985,7 +5025,7 @@ declare class JavascriptParser extends Parser {
 			| FunctionDeclaration
 			| VariableDeclaration
 			| ClassDeclaration
-			| PrivateIdentifierNode,
+			| PrivateIdentifier,
 		commentsStartPos: number
 	): boolean;
 	getComments(range?: any): any[];
@@ -5793,11 +5833,13 @@ type LoaderContext<OptionsType> = NormalModuleLoaderContext<OptionsType> &
 	LoaderRunnerLoaderContext<OptionsType> &
 	LoaderPluginLoaderContext &
 	HotModuleReplacementPluginLoaderContext;
-type LoaderDefinition<OptionsType = {}, ContextAdditions = {}> =
-	LoaderDefinitionFunction<OptionsType, ContextAdditions> & {
-		raw?: false;
-		pitch?: PitchLoaderDefinitionFunction<OptionsType, ContextAdditions>;
-	};
+type LoaderDefinition<
+	OptionsType = {},
+	ContextAdditions = {}
+> = LoaderDefinitionFunction<OptionsType, ContextAdditions> & {
+	raw?: false;
+	pitch?: PitchLoaderDefinitionFunction<OptionsType, ContextAdditions>;
+};
 declare interface LoaderDefinitionFunction<
 	OptionsType = {},
 	ContextAdditions = {}
@@ -6918,6 +6960,7 @@ type NodeEstreeIndex =
 	| FunctionDeclaration
 	| VariableDeclaration
 	| ClassDeclaration
+	| PrivateIdentifier
 	| ExpressionStatement
 	| BlockStatement
 	| EmptyStatement
@@ -6941,6 +6984,7 @@ type NodeEstreeIndex =
 	| ExportDefaultDeclaration
 	| ExportAllDeclaration
 	| MethodDefinition
+	| PropertyDefinition
 	| VariableDeclarator
 	| Program
 	| Super
@@ -7202,7 +7246,7 @@ declare interface NormalModuleLoaderContext<OptionsType> {
 	};
 	emitFile(
 		name: string,
-		content: string,
+		content: string | Buffer,
 		sourceMap?: string,
 		assetInfo?: AssetInfo
 	): void;
@@ -8407,12 +8451,6 @@ declare interface PrintedElement {
 	element: string;
 	content: string;
 }
-declare interface PrivateIdentifierNode {
-	type: "PrivateIdentifier";
-	name: string;
-	loc?: null | SourceLocation;
-	range?: [number, number];
-}
 declare interface Problem {
 	type: ProblemType;
 	path: string;
@@ -8530,71 +8568,6 @@ declare interface ProgressPluginOptions {
 	 */
 	profile?: null | boolean;
 }
-declare interface PropertyDefinitionNode {
-	type: "PropertyDefinition";
-	key:
-		| UnaryExpression
-		| ThisExpression
-		| ArrayExpression
-		| ObjectExpression
-		| FunctionExpression
-		| ArrowFunctionExpression
-		| YieldExpression
-		| SimpleLiteral
-		| RegExpLiteral
-		| BigIntLiteral
-		| UpdateExpression
-		| BinaryExpression
-		| AssignmentExpression
-		| LogicalExpression
-		| MemberExpression
-		| ConditionalExpression
-		| SimpleCallExpression
-		| NewExpression
-		| SequenceExpression
-		| TemplateLiteral
-		| TaggedTemplateExpression
-		| ClassExpression
-		| MetaProperty
-		| Identifier
-		| AwaitExpression
-		| ImportExpression
-		| ChainExpression
-		| PrivateIdentifierNode;
-	value:
-		| null
-		| UnaryExpression
-		| ThisExpression
-		| ArrayExpression
-		| ObjectExpression
-		| FunctionExpression
-		| ArrowFunctionExpression
-		| YieldExpression
-		| SimpleLiteral
-		| RegExpLiteral
-		| BigIntLiteral
-		| UpdateExpression
-		| BinaryExpression
-		| AssignmentExpression
-		| LogicalExpression
-		| MemberExpression
-		| ConditionalExpression
-		| SimpleCallExpression
-		| NewExpression
-		| SequenceExpression
-		| TemplateLiteral
-		| TaggedTemplateExpression
-		| ClassExpression
-		| MetaProperty
-		| Identifier
-		| AwaitExpression
-		| ImportExpression
-		| ChainExpression;
-	computed: boolean;
-	static: boolean;
-	loc?: null | SourceLocation;
-	range?: [number, number];
-}
 declare class ProvidePlugin {
 	constructor(definitions: Record<string, string | string[]>);
 	definitions: Record<string, string | string[]>;
@@ -8660,11 +8633,13 @@ declare interface RawChunkGroupOptions {
 	preloadOrder?: number;
 	prefetchOrder?: number;
 }
-type RawLoaderDefinition<OptionsType = {}, ContextAdditions = {}> =
-	RawLoaderDefinitionFunction<OptionsType, ContextAdditions> & {
-		raw: true;
-		pitch?: PitchLoaderDefinitionFunction<OptionsType, ContextAdditions>;
-	};
+type RawLoaderDefinition<
+	OptionsType = {},
+	ContextAdditions = {}
+> = RawLoaderDefinitionFunction<OptionsType, ContextAdditions> & {
+	raw: true;
+	pitch?: PitchLoaderDefinitionFunction<OptionsType, ContextAdditions>;
+};
 declare interface RawLoaderDefinitionFunction<
 	OptionsType = {},
 	ContextAdditions = {}
@@ -8773,33 +8748,7 @@ declare interface RenderBootstrapContext {
 	 */
 	hash: string;
 }
-declare interface RenderContextModuleTemplate {
-	/**
-	 * the chunk
-	 */
-	chunk: Chunk;
-
-	/**
-	 * the dependency templates
-	 */
-	dependencyTemplates: DependencyTemplates;
-
-	/**
-	 * the runtime template
-	 */
-	runtimeTemplate: RuntimeTemplate;
-
-	/**
-	 * the module graph
-	 */
-	moduleGraph: ModuleGraph;
-
-	/**
-	 * the chunk graph
-	 */
-	chunkGraph: ChunkGraph;
-}
-declare interface RenderContextObject {
+declare interface RenderContext {
 	/**
 	 * the chunk
 	 */
@@ -9733,6 +9682,7 @@ declare abstract class RuntimeTemplate {
 	expressionFunction(expression?: any, args?: string): string;
 	emptyFunction(): "x => {}" | "function() {}";
 	destructureArray(items?: any, value?: any): string;
+	destructureObject(items?: any, value?: any): string;
 	iife(args?: any, body?: any): string;
 	forEach(variable?: any, array?: any, body?: any): string;
 
@@ -10031,7 +9981,7 @@ declare abstract class RuntimeTemplate {
 		/**
 		 * init fragments will be added here
 		 */
-		initFragments: InitFragment[];
+		initFragments: InitFragment<any>[];
 		/**
 		 * runtime for which this code will be generated
 		 */
@@ -10395,11 +10345,6 @@ declare class Source {
 	source(): string | Buffer;
 	buffer(): Buffer;
 }
-declare interface SourceData {
-	iife?: boolean;
-	init?: string;
-	expression: string;
-}
 declare interface SourceLike {
 	source(): string | Buffer;
 }
@@ -10571,7 +10516,7 @@ declare abstract class StackedMap<K, V> {
 	readonly size: number;
 	createChild(): StackedMap<K, V>;
 }
-type StartupRenderContext = RenderContextObject & { inlined: boolean };
+type StartupRenderContext = RenderContext & { inlined: boolean };
 type Statement =
 	| FunctionDeclaration
 	| VariableDeclaration
@@ -11138,21 +11083,21 @@ declare class Template {
 	static asString(str: string | string[]): string;
 	static getModulesArrayBounds(modules: WithId[]): false | [number, number];
 	static renderChunkModules(
-		renderContext: RenderContextModuleTemplate,
+		renderContext: ChunkRenderContext,
 		modules: Module[],
 		renderModule: (arg0: Module) => Source,
 		prefix?: string
 	): Source;
 	static renderRuntimeModules(
 		runtimeModules: RuntimeModule[],
-		renderContext: RenderContextModuleTemplate & {
+		renderContext: RenderContext & {
 			codeGenerationResults?: CodeGenerationResults;
 			useStrict?: boolean;
 		}
 	): Source;
 	static renderChunkRuntimeModules(
 		runtimeModules: RuntimeModule[],
-		renderContext: RenderContextModuleTemplate
+		renderContext: RenderContext
 	): Source;
 	static NUMBER_OF_IDENTIFIER_START_CHARS: number;
 	static NUMBER_OF_IDENTIFIER_CONTINUATION_CHARS: number;
@@ -12099,19 +12044,19 @@ declare namespace exports {
 			) => 0 | 1 | -1;
 		}
 		export namespace serialization {
-			export let register: (
+			export const register: (
 				Constructor: Constructor,
 				request: string,
 				name: string,
 				serializer: ObjectSerializer
 			) => void;
-			export let registerLoader: (
+			export const registerLoader: (
 				regExp: RegExp,
 				loader: (arg0: string) => boolean
 			) => void;
-			export let registerNotSerializable: (Constructor: Constructor) => void;
-			export let NOT_SERIALIZABLE: object;
-			export let buffersSerializer: Serializer;
+			export const registerNotSerializable: (Constructor: Constructor) => void;
+			export const NOT_SERIALIZABLE: object;
+			export const buffersSerializer: Serializer;
 			export let createFileSerializer: (fs?: any) => Serializer;
 			export { MEASURE_START_OPERATION, MEASURE_END_OPERATION };
 		}
